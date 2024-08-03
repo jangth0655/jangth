@@ -36,7 +36,6 @@ jobs:
       - run: yarn build
         env:
           BASE_PATH: '/jangth'
-      - run: yarn next export
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
