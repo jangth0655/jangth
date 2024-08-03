@@ -1,0 +1,47 @@
+---
+title: '[React Testing] intersectionObserver'
+date: '2024-08-02'
+tags: ['react-testing']
+draft: false
+summary: '테스트 코드 작성중 intersectionObserver로 인한 에러와 해결'
+---
+
+테스트 코드 작성 중 에러가 발생
+
+- intersection observer를 사용하는 컴포넌트에서 발생한 에러이다.
+
+```
+console.error
+      Error: Uncaught [ReferenceError: IntersectionObserver is not defined]
+```
+
+**jest가 실행되는 환경은 node.js**이고 **Web API인 intersection observer는 브라우저 환경**에서 동작하기 때문에 테스트 환경에서 에러가 발생하였는데
+**중요한 것은 intersection observer은 Web API**이기 때문에 테스트 할 수 없어 **모킹을 해야**만 한다.
+
+```typescript
+// jest.setup.ts
+beforeEach(() => {
+  const mockIntersectionObserver = jest.fn()
+  mockIntersectionObserver.mockReturnValue({
+    observe: () => null,
+    unobserve: () => null,
+    disconnect: () => null,
+  })
+  window.IntersectionObserver = mockIntersectionObserver
+})
+```
+
+위 intersectionObserver를 모킹한 것을 설명하자면
+**1. jest.setup.ts의 beforeEach로 설정**
+setup.ts에 beforeEach로 설정하게 된다면 각 모든 테스트마다 intersectionObserver 모킹함수가 설정된다.
+
+**2. mockIntersectionObserver란 스파이 함수를 생성**
+스파이 함수의 mockReturnValue는 모킹된 함수가 반환할 값을 설정할 수 있다.
+_intersection observer는 observer, unobserver, disconnect_ 세개의 메서드를 가지고 있고 이러한 메서드는 아무런 동작하지않고 null을 반환한다.
+
+**3. window.intersectionObserver**
+전역 객체 window 의 intersection observer 속성을 모킹된 함수로 덮어씌운다. 이렇게 하면 테스트 환경에서 모킹한 intersectionObserver를 사용할 수 있다.
+
+하지만 위와 같이 모킹을 했지만 실제 node.js에서는 스크롤에 따른 뷰포트 교차지점을 테스트 할 수 없다.
+
+이처럼 intersection observer와 같이 **브라우저 환경** 즉 실제 환경에서 테스트를 진행해야 한다면 **E2E 테스트**로 검증하는 것이 좋다

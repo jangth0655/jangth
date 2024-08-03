@@ -1,0 +1,84 @@
+---
+title: '[React Testing] 디바운스 테스팅'
+date: '2024-07-21'
+tags: ['react-testing']
+draft: false
+summary: 'jest, RTL에서 타이머 테스팅'
+---
+
+### debounce.js
+
+```javascript
+export const debounce = (fn, wait) => {
+  let timeout = null
+
+  return (...args) => {
+    const later = () => {
+      timeout = -1
+      fn(...args)
+    }
+
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+    timeout = window.setTimeout(later, wait)
+  }
+}
+```
+
+### 테스트 코드
+
+먼저 타이머가 있는 경우 좀 더 고민할 필요가 있는데,
+테스트 코드는 비동기 타이머와 무관하게 **동기적으로 실행**된다는 점이 매우 중요하다.
+
+따라서 **비동기 함수(콜백)가 실행되기 전 단원(expect)이 실행**되어 의도한대로 동작되지 않는다. 그래서 원하는 시간 만큼 딜레이를 해야만 debounce함수의 콜백함수가 제대로 호출하는지 검증이 가능한다.
+
+1. 타이머 모킹 : jest.useFakeTimers()
+2. 모킹한 타이머로 우리가 원하는 시간만큼 흐른 것으로 조작 : jest.advanceTimerByTime(**시간**)
+3. **타이머를 모킹한 이후 타이머를 항상 클리어해야한다.**
+4. (참고) setSystimTime() : 테스트가 구동되는 현재 시간을 정의할 수 있음.
+
+```javascript
+describe('debounce', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('특정 시간이 지난 후 함수가 호출된다.', () => {
+    const spy = vi.fn()
+
+    const debouncedFn = debounce(spy, 300)
+
+    debouncedFn()
+
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalled()
+  })
+
+  it('연이어 호출해도 마지막 호출 기준으로 지정된 타이머 시간이 지난 경우에만 함수가 호출된다.', () => {
+    const spy = vi.fn()
+
+    const debouncedFn = debounce(spy, 300)
+
+    debouncedFn()
+
+    vi.advanceTimersByTime(200)
+    debouncedFn()
+
+    vi.advanceTimersByTime(100)
+    debouncedFn()
+
+    vi.advanceTimersByTime(200)
+    debouncedFn()
+
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+})
+```
