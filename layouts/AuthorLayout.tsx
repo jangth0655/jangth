@@ -23,7 +23,7 @@ export default function AuthorLayout({ children, content }: Props) {
           <div className="flex flex-col items-center space-x-2 pt-8">
             {avatar && (
               <Image
-                src={avatar}
+                src={`/jangth/${avatar}`}
                 alt="avatar"
                 width={192}
                 height={192}
