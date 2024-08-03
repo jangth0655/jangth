@@ -9,6 +9,7 @@ import { Metadata } from 'next'
 
 export async function generateMetadata({ params }: { params: { tag: string } }): Promise<Metadata> {
   const tag = decodeURI(params.tag)
+
   return genPageMetadata({
     title: tag,
     description: `${siteMetadata.title} ${tag} tagged content`,
@@ -27,6 +28,7 @@ export const generateStaticParams = async () => {
   const paths = tagKeys.map((tag) => ({
     tag: encodeURI(tag),
   }))
+
   return paths
 }
 
