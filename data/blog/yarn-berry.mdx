@@ -1,0 +1,174 @@
+---
+title: 'yarn berry 도입'
+date: '2024-04-01'
+tags: ['infra']
+draft: false
+summary: 'yarn berry 적용 이유와 적용 후 변화'
+---
+
+# Yarn berry 도입
+
+항상 개발 하던데로 yarn으로 프로젝트를 관리하고 빌드하여 CICD를 진행하고 있습니다. 진행 중 서버 개발자분이 “yarn berry 또는 pnpm으로 하면 의존성 관리를 더 쉽게 빠르게 할 수 있다던데?”라는 말을 들었습니다.
+
+그래서 저는 yarn을 사용하고 있었기 때문에 곧 바로 yarn berry에 대해 찾아보았습니다.
+
+## Yarn berry
+
+yarn classic(v1)은 nodejs 애플리케이션의 의존성관리를 하는 것으로 널리 사용 되어 왔는데요, 이후 v2부터는 yarn berry를 의미하합니다.
+
+- yarn classic은 v1
+- yarn berry는 v2, v3, v4
+
+### 🤔 node_modules의 문제점
+
+node_modules 사용하는 전통적인 nodejs 의존성 관리 방식은 널리 사용되었지만 문제점이 있었는데요,
+
+- **중첩된 구조와 이에 따른 상당히 커지는 파일 크기**
+
+node_modules는 중첩된 구조를 가지고 있으며 따라서 여러 버전의 같은 패키지가 동시에 존재할 가능성이 있다고 합니다. 이는 의존성 자체를 복잡하게 만들거나 호환성 문제를 발생시킬 수 있고 디스크 공간을 많이 차지하게 됩니다.
+
+- **비효울적인 의존성 검색**
+
+node_modules는 파일을 탐색할 때 require 함수로 탐색을 합니다. 하지만 require 함수로 탐색하는 경우 모듈을 로드할 때 node_modules 폴더를 순차적으로 탐색하여 필요한 파일을 찾게되는데 이는 디스크 I/O가 상당히 많이 발생할 수 있습니다.
+
+npx create nextjs 를 했을 경우 로컬환경에서 node_modules와 yarn berry의 zip파일의 용량을 비교해보았습니다. 만약 설치된 프로젝트 패키지가 커질 수록 용량 차이가 많을 것으로 생각됩니다.
+
+```Markdown
+### yarn classic
+du -sh node_modules
+315M    node_modules
+
+### yarn berry
+du -sh .yarn/cache
+307M    .yarn/cache
+```
+
+## PnP (Plug’nPlay)
+
+위와 같은 문제점으로 인해 yarn berry 부터는 PnP 전략이 등장했습니다.
+
+yarn berry의 PnP전략은 node_modules를 사용하지 않습니다. 대신 .yarn 경로 하위에 .zip파일로 압축하여 저장합니다.
+
+이와 같이 zip파일 형태로 패키지를 저장하게되면 압축하여 저장하기 때문에 중복된 패키지를 여러 복사본으로 저장하는 것보다 효율적이며, 압축하여 저장 하기 때문에 디스크 용량 자체가 줄어든다는 장점이 있습니다.
+
+그리고 자동으로 생성된 .pnp.cjs파일이 .zip파일을 참조하여 의존성 정보를 정확하게 맵핑하여 트리 구조 형식으로 저장하고 있습니다. 따라서 모듈 해석 과정이 상당히 빨라져 효율적인 모듈해석이 가능해집니다.
+
+## 적용 (Migration)
+
+```Markdown
+rm -rf node_moduels yarn.lock
+```
+
+```Markdown
+yarn set version berry
+
+yarn 또는 yarn install
+
+yarn -v
+```
+
+yarn berry로 마이그레이션 이후 .pnp.cjs와 .pnp.loader.js, yarnrc.yml 파일과 .yarn파일이 생성되는 것을 확인할 수 있습니다.
+
+## .gitignore 추가
+
+### Zero Install
+
+```markdown
+# zero install
+
+.yarn/\*
+!.yarn/cache
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+```
+
+### Non Zero Install
+
+```markdown
+#Non Zero-Installs
+.pnp._
+.yarn/_
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+```
+
+## Typescript 적용
+
+(vscode) vscode - zipfs 확장프로그램 다운
+
+**Eslint와 Typescript sdk 설치**
+
+```jsx
+$ yarn dlx @yarnpkg/sdks vscode
+```
+
+## Docker file
+
+아래는 yarnberry를 활용해 최적화된 도커파일을 작성한 것입니다.
+
+**RUN echo 'enableGlobalCache: false' >> .yarnrc.yml** 부분에서 build 이후 설정합니다.
+이유는 두가지로 생각할 수 있습니다.
+
+1.  yarn berry는 기본적으로 **enableGlobalCache가 true이기 때문인데요, 그럼 특정 프로젝트에 대해 패키지가 설치되는 것이 아니라 (global)컴퓨터 시스템 자체에 패키지가 설치 되는 것이기 때문입니다.**
+    그럼 해당 프로젝트 .yarn에 cache폴더가 생성되지 않습니다. 하지만 docker build하여 컨테이너를 실행할 때는 cache파일(패키지)이 있어야 프로젝트를 실행할 수 있습니다.
+2.  **build 이후 enableGlobalCache가 false**로 하는 이유는 만약 **build 전에 false로 하게 된다면** yarn berry는 **devdependency까지 모두 캐시**하여 저장하기 때문에 불필요한 데이터까지 포함되어 용량이 커지게 되기 때문입니다.
+    따라서 빌드 이후 production에 필요한 부분만 zip파일을 생성하기 위해 **build 이후 enableGlobalCache가 false**로 하였습니다.
+
+```jsx
+FROM node:20-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk update && apk add --no-cache libc6-compat vim bash
+
+FROM deps AS builder
+WORKDIR /usr/src/app
+RUN yarn set version berry
+RUN echo 'nodeLinker: pnp' >> .yarnrc.yml
+
+COPY . .
+
+# gloabl package install, build
+RUN yarn
+RUN yarn build
+RUN yarn build-storybook
+
+# local production package install
+RUN echo 'enableGlobalCache: false' >> .yarnrc.yml
+RUN yarn workspaces focus --production
+
+FROM base AS runner
+WORKDIR /usr/src/app
+
+ENV NODE_ENV production
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# next build file copy
+COPY --from=builder --chown=nextjs:nodejs /usr/src/app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /usr/src/app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /usr/src/app/.next/static ./.next/static
+
+# yarn pnp file copy
+COPY --from=builder --chown=nextjs:nodejs /usr/src/app/.yarn ./.yarn
+COPY --from=builder --chown=nextjs:nodejs /usr/src/app/.pnp* ./
+COPY --from=builder --chown=nextjs:nodejs /usr/src/app/yarn.lock ./
+COPY --from=builder --chown=nextjs:nodejs /usr/src/app/.yarnrc.yml ./
+
+USER nextjs
+
+# storybook
+COPY --from=builder /usr/src/app/storybook-static ./public/storybook
+
+EXPOSE 3000
+ENV PORT 3000
+
+CMD ["yarn", "node", "server.js"]
+```

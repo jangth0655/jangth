@@ -1,0 +1,128 @@
+---
+title: 'Next.js Script와 nmap 에러'
+date: '2024-07-01'
+tags: ['react', 'next-js']
+draft: false
+summary: 'next.js에서 nmap을 사용했는데 에러 발생'
+---
+
+naver 지도를 Next.js Script 컴포넌트를 활용하여 스크립트를 로드하는 중 아래와 같은 에러를 마주하게되었다.
+![](https://velog.velcdn.com/images/jangth0655/post/a26d2c43-5d6f-47e1-998c-5702338153f6/image.png)
+
+useMap 훅에서 naver map script에 포함된 api중 geocode api 사용하려는데 geocode가 undefined로 나타는 것이다. 즉 useAddressToCoordinate 훅에서 스크립트가 로드되기 전 geocode를 찾는 다는 뜻으로 이해할 수 있다.
+
+```typescript
+import { useEffect, useState } from 'react'
+
+function useAddressToCoordinate({ address }: { address?: string }) {
+  const [result, setResult] = useState<{ x: number; y: number }>()
+
+  useEffect(() => {
+    if (!address) return
+
+    // geocode를 찾지 ❌
+    window.naver.maps.Service.geocode(
+      {
+        query: address,
+      },
+      (status, response) => {
+        if (status === window.naver.maps.Service.Status.ERROR) {
+          console.log('error')
+        } else {
+          if (response.v2.addresses.length <= 0) return
+          const { x, y } = response.v2.addresses[0]
+          setResult({
+            x: Number(x),
+            y: Number(y),
+          })
+        }
+      }
+    )
+  }, [address])
+
+  return {
+    x: result?.x,
+    y: result?.y,
+  }
+}
+
+export { useAddressToCoordinate }
+```
+
+### Script Loading Strategy beforeInteractive 적용
+
+Next.js Script는 네가지 전략을 갖고 있는데, Script의 로딩 시점을 컨트롤하여 최적화를 진행한다.
+
+그 중 위 이슈를 해결하기 위해 `beforeInteraction`을 사용했다.
+
+https://nextjs.org/docs/pages/api-reference/components/script
+
+- beforeInteractive
+
+Next.js 코드와 페이지 하이드레이션이 발생하기 전 스크립트를 로드한다. 즉 서버사이드에서 사전에 미리 스크립트를 로드하게 된다. (스크립트가 초기 HTML에 서버에서 주입된다. )
+
+- afterInteractive
+
+클라이언트 측에서 자바스크립트를 다운로드 받고 난 후 스크립트가 HTML에 주입된다. 따라서 페이지 일부 하이드레이션이 완료된 후 로드된다. 즉 하이드레이션 후 가능한 빨리 스크립트를 로드한다.
+
+- lazyOnload
+
+페이지와 모든 리소스(이미지, 스타일시트 등)가 로드된 후 스크립트를 로드한다.
+
+- wokers (아직 안정적이지 않음)
+
+Web Worker를 사용하여 스크립트를 로드한다.
+
+```typescript
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body className={`${pretendard.className}`}>
+        <KakaoScript />
+        {/* eslint-disable-next-line @next/next/no-before-interactive-script-outside-document */}
+
+        // ✅ strategy="beforeInteractive"를 추가한다.
+        <Script
+	      strategy="beforeInteractive"
+          id="naver-map-script"
+          type="text/javascript"
+          src={`https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${process.env
+            .NEXT_PUBLIC_NMAP_KEY!}&submodules=geocoder`}
+        />
+        <QueryProvider>
+          <div className="flex justify-center items-center">
+            <main className="w-sm md:w-md min-h-screen flex flex-col relative">
+              <section className="overflow-y-auto pb-[3.625rem] pt-14">{children}</section>
+            </main>
+          </div>
+          <div id="modal"></div>
+        </QueryProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+### Dyanmic Import (동적 import) 적용
+
+동적 import에 ssr false를 적용하면 strategy="beforeInteractive"을 하지 않아도 된다.
+SSR하지 않고 CSR로 적용되며, 필요할때 동적으로 Map 컴포넌트를 import하기 때문이다.
+
+그럼 Script를 먼저 로드한 후 Map컴포넌트가 적용되기 때문에strategy="beforeInteractive"을 사용하지 않아도 이슈를 해결할 수 있다.
+
+```typescript
+const Maps = dynamic(() => import('../../Maps'), {
+  ssr: false,
+})
+```
+
+```typescript
+// layout
+<Script
+	// 제거 strategy="beforeInteractive"
+	id="naver-map-script"
+	type="text/javascript"
+	src={`https://oapi.map.naver.com/openapi/v3/maps.js
+ncpClientId=${process.env.NEXT_PUBLIC_NMAP_KEY!}&submodules=geocoder`}
+/>
+```

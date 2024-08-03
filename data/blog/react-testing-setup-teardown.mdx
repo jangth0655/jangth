@@ -1,0 +1,111 @@
+---
+title: '[React Testing] setup과 teardown'
+date: '2024-07-22'
+tags: ['react-testing']
+draft: false
+summary: 'setup & teardown의 개념과 초기 작업(세팅)'
+---
+
+모든 **테스트는 독립적**으로 실행되어야 한다. 각 테스트가 서로 영향을 준다면 해당 테스트의 결과가 통과 하더라도 신뢰할 수 없다.
+
+이러한 테스트 독립성을 보장하기 위해 setup과 teardown을 활용할 수 있다.
+
+- setup : **테스트를 실행하기 전** 수행해야 하는 전처리작업
+- teardown : **테스트를 실행한 후** 수행해야하는 후처리 작업
+
+setup과 teardown 작업을 수행하여 테스트 시작 전후로 다른 테스트에 영향을 미치지 않도록 초기화 하거나 데이터 세팅을 할 수 있고 반복적인 작업을 정의 할 수 있다.
+
+<br />
+
+### setup - beforeEach, beforeAll
+
+- each : 각각의 테스트 실행 전 실행된다. 하지만 describe 내에서만 실행되면 describe 블럭내에 있는 테스트에만 영향을 준다.
+- all : 모든 테스트 테스트 실행전에 호출되지만, 실행 전에 **단 한번만** 호출된다.
+- each와 all이 함께 사용된다면 all이 먼저 실행되고 each가 실행된다.
+
+```typescript
+beforeEach(() => {
+  console.log('root - beforeEach')
+}) // 2
+beforeAll(() => {
+  console.log('root - beforeAll')
+}) // 1 가장 먼저 실행됨
+descibe('test ', () => {
+  beforeEach(() => {
+    console.log('descibe - beforeEach')
+  }) // 3
+})
+```
+
+<br />
+
+### teardown - afterEach, afterAll
+
+- setup과 유사하지만 호출되는 시점이 다르다
+- each : 각각의 테스트 완료된 후에 실행, 테스트에 의해 생성된 상태를 초기화할 경우 사용, 하지만 describe 내에 정의했다면 describe 블럭내에 있는 테스트 완료후 실행된다.
+- all : 모든 **테스트 실행 후** 호출되지만, 스커프 및 파일 내에 테스트 실행이 모두 완료된 후 **단 한번만 호출**
+
+```typescript
+afterEach(() => {
+  console.log('root afterEach')
+}) // 1 테스트 완료 후 가장먼저 실행
+afterAll(() => {
+  console.log('root afterAll')
+}) // 3 모든 테스트 종료후 1번만 실행
+describe('test', () => {
+  console.log('describe after')
+}) // 2
+```
+
+<br />
+
+### 테스트 파일 내에서 전역변수를 사용하여 조건부로 동작을 분리하는 것은 좋지 않다.
+
+만약 이전 테스트에서 전역 변수 someCondition을 사용하고 업데이트 했다면, 다른 테스트에 영향을 줄 수 있다.
+
+```typescript
+let someCondition = false;
+beforeEach(() => {
+	if(someCondition) {
+		await render(<Test />)
+	} else {
+		//...
+	}
+})
+```
+
+<br />
+
+### setup-teardown을 파일단위가 아니라 앱 전체에 적용
+
+```typescript
+import '@testing-library/jest-dom'
+
+// 모킹한 모듈의 호출 히스토리(기록) 초기화
+afterEach(() => {
+  jest.clearAllMocks()
+})
+
+// 기록뿐만 아니라 설정된 모킹한 모듈의 구현도 초기화한다.
+afterAll(() => {
+  jest.resetAllMocks()
+})
+
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: jest.fn().mockImplementation((query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(), // deprecated
+    removeListener: jest.fn(), // deprecated
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
+})
+```
+
+✅ Object.defineProperty(....)
+Object.defineProperty(....)는 window.matchMeadia 메서드를 jest 테스트 환경에 모킹하는 것이다.
+(window.matchMeadia는 CSS 미디어 쿼리가 문서와 일치하는지 여부를 확인하는 기능이다.)

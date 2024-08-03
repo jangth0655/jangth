@@ -1,0 +1,108 @@
+---
+title: '[React Testing] msw 대해'
+date: '2024-07-22'
+tags: ['react-testing']
+draft: false
+summary: 'msw의 개념과 설정'
+---
+
+통합테스트를 작성할 때 네트워크 통신 후 얻은 데이터가 제대로 노출 되는지를 검증해야 한다. 하지만 실제 네트워크 통신에 따른 API 호출을 해야 할까?
+
+테스트에서 실제 API 호출을 하게되면 **네트워크 통신하는 시간**이 필요하므로 테스트를 실행하는 **시간이 증가**하고, **서버 이슈**, **네트워크 환경 영향**등으로 인한 테스트를 실패할 수 있다.
+따라서 API 응답을 **모킹하여 일관된 테스트 환경을 구성**하는 것이 중요하다.
+
+### MSW(Mock Service Worker)
+
+MSW는 Service Worker API를 사용하여 Node.js 및 브라우저 환경을 위한 API를 모킹하는 라이브러리
+MSW API의 URL과 요청, 응답에 대한 정보만 전달하면 편리하게 API를 모킹할 수 있다.
+
+- 브라우저에서는 서비스 워크를 사용하여 모킹
+- Node.js에서는 XHR, fetch등의 모듈의 요청을 가로채 모킹
+
+### MSW 사용
+
+MSW에서는 API 응답을 모킹하기 위해 Request Handler라는 것을 정의하여 사용한다.
+
+```
+$ yarn add -D msw@^1.1.0
+```
+
+✅ 참고로 최신 msw를 설치하면 여러 에러가 발생하게 되는데, 아래와 같이 setupServer를 노드모듈에서 찾지 못한다고한다. 구글링 결과 최신 msw 버전이 아직 안정적이지 않다는 의견이 많았다.
+
+따라서 안정적으로 될 때 까지 우선 위 1.1.0이상 버전을 사용하도록 했다.
+
+**handlers.ts**
+handlers.ts는 네트워크 요청을 가로채 처리하는 역할을 한다.
+설정한 이후 msw server에 설정해주면된다.
+
+```typescript
+import { setupServer } from 'msw/node';
+
+export const handler = [
+rest.get(`${API_BASE_URL}/stores/:id`, (req, res, ctx) => {
+    return res(ctx.status(200), ctx.json(StoreDetailData));
+  }),
+rest.post(`${API_BASE_URL}/stores`, (req, res, ctx) => {
+    return res(ctx.status(200));
+  }),
+...
+]
+
+export const server = setupServer(...handlers);
+```
+
+- **request(req)** : 가로챈 요청을 나타내며 method, url, headers, params등 확인할 수 있다.
+- **response(res)** : 가로챈 요청에 대한 응답으로 Context Object(ctx) 메서드를 사용해 모의 응답을 전달한다.
+- **context object(ctx)** : 응답을 구성하는데 사용되는 유틸리티 메서드로 응답의 상태와 응답 결과를 제공하고 응답 지연 시간, 헤더 등을 설정할 수 있다.
+
+HTTP 요청을 가로채고 모킹된 응답을 반환하는 handler를 jest.setup.ts에 설정해준다.
+이때 중요한 것은 **server를 구동** 했으면 각 **테스트 종료**할 때 **핸들러를 재설정하여 테스트 간의 상태를 초기화(리셋)**하고, **서버를 종료**하는 것이다.
+
+✅ 항상 중요한것은 테스트는 독립적으로 진행되어야한다!!!
+
+```typescript
+import '@testing-library/jest-dom'
+// ...
+import { setupServer } from 'msw/node'
+import { handlers } from './__mocks__/handlers'
+
+export const server = setupServer(...handlers)
+
+beforeAll(() => {
+  // msw 서버구동
+  server.listen()
+})
+
+afterEach(() => {
+  jest.clearAllMocks()
+  server.resetHandlers()
+})
+
+afterAll(() => {
+  jest.resetAllMocks()
+  // msw 서버 종료
+  server.close()
+})
+
+//...
+```
+
+<br />
+
+✔️ **MSW 동적 모킹**
+handers.ts에서 모킹한 응답 값을 동적으로 응답 값을 변경할 수 있는데 이때 사용하는 것이 msw API제공하는 **use** API다.
+
+- 사용 방법은 간단하다.
+  setupServer(server)의 api use를 사용하고 인자로 handlers.ts에서 작성한 대로 api 요청을 설정하면된다.
+
+```typescript
+// test code
+ beforeEach(() => {
+    server.use(
+      rest.get('api/v1/users/me', (req, res, ctx) => {
+        return res(ctx.status(200), ctx.json(userInfo));
+      })
+    );
+```
+
+위와 같이 하면 handlers.ts에서 작성한 'api/v1/users/me' api 모킹한 응답 값을 설정했더라도 test code에 작성한 server.use(..)가 가로채 모킹한 응답 값을 제공한다.

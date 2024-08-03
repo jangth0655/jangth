@@ -1,0 +1,159 @@
+---
+title: '[React Testing] 통합테스트 작성'
+date: '2024-07-29'
+tags: ['react-testing']
+draft: false
+summary: '사이드 프로젝트의 통합테스트를 적용'
+---
+
+통합테스트의 의미, 작성요령, 대상, msw를 앞서 포스팅했었는데 참고해야한다.
+
+- 스펙 : next.js + jest + RTL + msw
+
+통합테스트 대상
+https://velog.io/@jangth0655/React-Testing-%ED%86%B5%ED%95%A9%ED%85%8C%EC%8A%A4%ED%8A%B8
+
+msw
+https://velog.io/@jangth0655/React-Testing-MSW
+
+### render 함수 커스텀하기
+
+- /utils/test/render
+
+```typescript
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+// eslint-disable-next-line import/no-anonymous-default-export
+export default async (component: React.ReactNode, options = {}) => {
+  const user = userEvent.setup();
+
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        refetchOnWindowFocus: false,
+      },
+      mutations: {
+        retry: false,
+      },
+    },
+  });
+
+  return {
+    user,
+    ...render(<QueryClientProvider client={queryClient}>{component}</QueryClientProvider>),
+  };
+};
+
+```
+
+tanstack query를 사용중이기 때문에 컴포넌트를 래핑 하고 render api와 userEvent를 함께 반환하는 훅으로 테스팅 라이브러리에서 제공하는 render api를 커스텀한 코드이다.
+
+### 통합테스트 설계
+
+페이지에서 비즈니스 로직을 구분하여 Header, StoreList를 나눠서 통합테스트를 작성한다.
+
+- Header : title, 등 여러 props를 받고 내부적으로 여러 이벤트 핸들러와 하위 컴포넌트가 존재
+- StoreList : api 호출 로직 및 여러 하위 컴포넌트들이 존재
+
+```typescript
+export default function HomePage() {
+  return (
+    <section>
+      <Header title="STORE LIST" customMenu={<HeaderMenu />} />
+      <SSRSuspense fallback={<StoreListSkeleton length={10} paddingTop={70} />}>
+        <StoreList />
+      </SSRSuspense>
+      <StoreAddButton />
+      <Toast isShowing />
+    </section>
+  );
+}
+
+```
+
+- StoreList test
+
+```typescript
+const routerPush = jest.fn();
+const routerReplace = jest.fn();
+
+jest.mock('next/navigation', () => ({
+  useRouter() {
+    return {
+      prefetch: () => null,
+      push: routerPush,
+      replace: routerReplace,
+    };
+  },
+}));
+
+it('스토어 리스트의 아이템 항목과 상세페이지로 이동하는 올바른 링크가 제대로 표시된다.', async () => {
+  await render(<StoreList />);
+
+  const storeItems = await screen.findAllByRole('link');
+  expect(storeItems).toHaveLength(10);
+
+  storeItems.forEach((el, index) => {
+    const storeItem = within(el);
+    const item = storeData[index];
+
+    expect(storeItem.getByText(item.name)).toBeInTheDocument();
+    expect(storeItem.getByText(item.city)).toBeInTheDocument();
+    expect(storeItem.getByText(translateKindMenu(item.kind_menu as KindMenu))).toBeInTheDocument();
+    expect(el).toHaveAttribute('href', `/store/${item.pk}`);
+  });
+});
+
+it('카테고리를 전체를 클릭한 경우, 스토어 종류가 모두 나온다.', async () => {
+  const { user } = await render(<StoreList />);
+  const [all, food, cafe] = await screen.findAllByTestId('storeList-tab');
+
+  await user.click(all);
+
+  const storeItems = await screen.findAllByRole('link');
+  storeItems.forEach((el, index) => {
+    const storeItem = within(el);
+    const item = storeData[index];
+    expect(storeItem.getByText(translateKindMenu(item.kind_menu as KindMenu))).toBeInTheDocument();
+  });
+});
+
+it('카테고리를 음식을 클릭한 경우, 스토어 종류 타입이 음식으로 나온다.', async () => {
+  const { user } = await render(<StoreList />);
+  const [all, food, cafe] = await screen.findAllByTestId('storeList-tab');
+
+  await user.click(food);
+
+  const storeItems = await screen.findAllByRole('link');
+
+  storeItems.forEach((el) => {
+    const storeItem = within(el);
+    expect(storeItem.getByText('상점')).toBeInTheDocument();
+    expect(storeItem.queryByText('기타')).not.toBeInTheDocument();
+    expect(storeItem.queryByText('카페')).not.toBeInTheDocument();
+  });
+});
+
+it('카테고리를 카페을 클릭한 경우, 스토어 종류 타입이 카페로 나온다.', async () => {
+  const { user } = await render(<StoreList />);
+  const [all, food, cafe] = await screen.findAllByTestId('storeList-tab');
+
+  await user.click(cafe);
+
+  const storeItems = await screen.findAllByRole('link');
+
+  storeItems.forEach((el) => {
+    const storeItem = within(el);
+    expect(storeItem.getByText('카페')).toBeInTheDocument();
+    expect(storeItem.queryByText('상점')).not.toBeInTheDocument();
+    expect(storeItem.queryByText('기타')).not.toBeInTheDocument();
+  });
+});
+
+```
+
+- next/navigation 모듈을 사용하기 떄문에 모킹하고 스파이 함수를 활용하여 인자 전달 및 호출 횟수를 검증한다.
+- "findBy~, findAll~"를 사용하여 비동기 요청에 따른 쿼리를 조회한다.

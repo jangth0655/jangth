@@ -1,0 +1,139 @@
+---
+title: '[React Testing] Next.js 세팅 작업'
+date: '2024-07-21'
+tags: ['react-testing']
+draft: false
+summary: 'Jest, RTL을 Next.js 초기 세팅'
+---
+
+공식문서 (https://nextjs.org/docs/app/building-your-application/testing/jest)
+
+공식 문서 Quick Start를 기반으로 할 수 있으나 이미 프로젝트를 생성한 후 수동으로 셋업 해야했기 때문에 직접 설치했다.
+
+- Next.js 12버전 이후 부터는 Jest를 설정하는 데 필요한 기본 구성 파일들이 이미 Next.js에 포함(빌트인)되었다.
+
+<br />
+
+### jest & testing-library를 실행하기 위해 라이브러리를 설치
+
+```text
+npm install -D jest jest-environment-jsdom @testing-library/react @testing-library/jest-dom
+
+yarn add -D jest jest-environment-jsdom @testing-library/react @testing-library/jest-dom
+
+pnpm install -D jest jest-environment-jsdom @testing-library/react @testing-library/jest-dom
+```
+
+이후 yarn create jest@latest로 jest.config.ts파일을 자동으로 생성할 수 있으나 에러가 발생하였다.
+해당 에러는 next.js 내부적으로 jest가 설정되어 있는데 yarn create jest@latest로 jest config가 중복 설정되어 발생하는 에러라고 생각된다.
+
+<br />
+
+1. **jest.config.ts 파일을 생성한다.**
+
+```typescript
+// jest.config.ts
+
+import type { Config } from 'jest'
+import nextJest from 'next/jest.js'
+
+const createJestConfig = nextJest({
+  dir: './',
+})
+
+const config: Config = {
+  coverageProvider: 'v8',
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+}
+
+export default createJestConfig(config)
+```
+
+- coverageProvider : 코드 커버리지 도구로 'v8'엔진을 사용
+- testEnvironment : 테스트 환경 (jsdom)
+- setupFilesAfterEnv : 테스트 환경이 설정된 후 실행할 파일로 작성된 설정을 테스트 실행 전에 미리 실행
+
+  ✅ **jsDOM ??**
+  jsDOM github 주소 - https://github.com/jsdom/jsdom
+
+  Node.js 환경에서는 브라우저의 환경과 다르기 때문에 실제 브라우저의 환경과 유사한 jsDOM 환경을 사용한다.
+
+  jsDOM은 Node.js환경에서 DOM과 HTML의 표준 스펙을 준수하며, 일종의 javascript 모듈이기 때문에 테스트를 훨씬 빠르게 진행할 수 있다.
+
+  하지만 실제 브라우저 환경과 다르기 때문에 실제 UI를 확인할 수는 없다.
+
+<br />
+
+2. **jest.setup.ts파일을 생성한다.**
+   jest가 **테스트 파일을 실행하기 전 jest.setup.ts파일을 먼저 실행**하는데 이때 setup파일에 작성한 모킹, msw, 글로벌 설정등을 실행한다.
+
+@testing-library/jest-dom 라이브러리는 커스텀 매처(matchers)를 제공하는데 매처는 단언할 때 해당 조건을 만족하는지 검증하는 api다.
+예를들어 .toBeInTheDocument() - DOM 요소가 문서에 존재하는지 검증한다.
+
+```typescript
+//jest.setup.ts
+import '@testing-library/jest-dom'
+
+import { setupServer } from 'msw/node'
+import { handlers } from './__mocks__/handlers'
+
+export const server = setupServer(...handlers)
+
+beforeEach(() => {
+  const mockIntersectionObserver = jest.fn()
+  mockIntersectionObserver.mockReturnValue({
+    observe: () => null,
+    unobserve: () => null,
+    disconnect: () => null,
+  })
+  window.IntersectionObserver = mockIntersectionObserver
+})
+
+beforeAll(() => {
+  // msw 서버구동
+  server.listen()
+})
+
+// mocks 히스토리 초기화, server 리셋
+afterEach(() => {
+  jest.clearAllMocks()
+  server.resetHandlers()
+})
+
+afterAll(() => {
+  // 전체 테스트 완료 후 mock을 완전히 리셋하여 초기화한다.
+  jest.resetAllMocks()
+  // msw 서버 종료
+  server.close()
+})
+
+// zustand 모킹
+jest.mock('zustand')
+
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: jest.fn().mockImplementation((query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
+})
+```
+
+<br />
+
+### 테스트 실행
+
+```json
+//...
+"test": "jest --watch"
+//"test-coverage" : "jest --coverage"
+```
+
+![](https://velog.velcdn.com/images/jangth0655/post/77fc0c3e-fb8a-48f1-8197-56c84fa2abc0/image.png)
