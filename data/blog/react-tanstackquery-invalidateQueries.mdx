@@ -1,0 +1,68 @@
+---
+title: 'tanstackquery 쿼리무효화에 따른 캐시 업데이트 되지 않는 경우'
+date: '2024-08-07'
+tags: ['react', 'next-js']
+draft: false
+summary: 'invalidateQueries를 적용했지만 왜 캐시데이터가 업데이트 되지 않을까?..'
+---
+
+## #Table Of Contents
+
+- [상황](#상황)
+- [원인](#원인)
+- [해결방법](#해결방법)
+
+## # 상황
+
+데이터 목록조회는 메인홈('/')이고 데이터를 생성하는 페이지('/store/create')이며, 데이터를 생성하면 목록조회의 데이터를 **서버로 부터 fresh한 데이터로 업데이트 시키기위해** 쿼리 무효화(invalidateQueries)를 사용했다.
+
+1. 메인 홈의 스토어 컴포넌트가 존재하고 스토어 컴포넌트에서는 **GetStores 쿼리키를 가진 storeList를 호출** (useInfiniteQuery)
+2. 스토어 생성 페이지로 이동 후 **스토어를 생성하면서 쿼리 무효화**를 한다. (queryClient.invalidateQueries..)
+3. **스토어 생성이 Success라면** 메인 홈로 라우팅하여 **업데이트된 GetStores 쿼리키 데이터를 보여**준다.
+
+하지만 기대했던 것과는 달리 스토어를 성공적으로 메인 홈으로 이동했을 때 **스토어는 업데이트 되지 않는 이슈**가 발생 (스토어의 캐시데이터가 업데이트 되지 않음)
+
+tanstack query devtools와 네트워크 탭을 확인 했을 때는 invalidateQueries가 제대로 동작하는 것처럼 보인다.
+
+<br />
+
+**_스토어 생성 전 GetStores 쿼리키 데이터 stale_**
+![stale](/jangth/static/images/react/delightSpot_devtools_stale.png)
+
+**_스토어 생성 후 GetStores 쿼리키 데이터 fresh_**
+![fresh](/jangth/static/images/react/delightSpot_devtools_fresh.png)
+
+위 이미지를 보면 fresh상태로 쿼리 무효화가 정상적으로 동작 하지만 `왜 캐시데이터는 업데이트되지 않을까`…
+
+## # 원인
+
+GetStores키를 쿼리 무효화를 했지만 GetStores 쿼리키를 가진 쿼리를 호출하는 `컴포넌트는 언마운트 상태`다. 따라서 `GetStores키는 inactive상태로 유지`된다.
+
+상황을 정리해보면
+
+스토어 생성할 때 쿼리 무효화 후 메인 홈으로 라우팅할 때 fresh상태로 업데이트 하지만 `이때 메인 홈의 스토어 컴포넌트는 언마운트 상태` 로 GetStores키는 fresh로 업데이트 되었지만, `inactive상태`이기 때문에 캐시데이터는 업데이트 되지 않음
+
+## # 해결
+
+해결 방법은 간단하다.
+
+쿼리 무효화하려는 대상이 inactive라는것을 알려주면 된다.
+
+즉 `“무효화 하고 싶은 해당 쿼리 키는 현재 inactive상태를 알려줄 테니 업데이트 해줘!”`라고 말하는 것으로 본다.
+
+아래와 같이 invalidateQueries에 refetchType옵션에 inactive상태를 알려주면 된다.
+
+```typescript
+queryClient.invalidateQueries({
+  queryKey: [queryKeys.STORE.GET_STORES, selectedTab],
+  refetchType: 'inactive',
+})
+```
+
+### refetchType 옵션
+
+`refetchType` 옵션은 쿼리를 무효화할 때 `inactive`, `active`, `all` 중 하나를 선택하여 쿼리가 다시 페칭될 조건을 설정
+
+- **`inactive`**: 쿼리가 현재 비활성 상태일 때만 다시 페칭
+- **`active`**: 쿼리가 현재 활성 상태일 때만 다시 페칭
+- **`all`**: 쿼리가 활성 또는 비활성 상태에 관계없이 항상 다시 페칭
