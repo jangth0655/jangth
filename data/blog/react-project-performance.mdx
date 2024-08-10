@@ -1,0 +1,305 @@
+---
+title: '[성능] 프로젝트 성능 개선!!'
+date: '2024-08-10'
+tags: ['react', 'next-js', 'performance']
+draft: false
+summary: '사용자 경험을 향상 시키기 위해 서버 사이드, 이미지, 스크립트를 개선해보자'
+---
+
+## #Table Of Contents
+
+- [이미지 최적화 (AVIF 파일 형식과 sizes속성 적용)](#이미지-최적화-avif-파일-형식과-sizes속성-적용)
+- [Script](#script)
+- [Script와 프리로드 스캐너](#script와-프리로드-스캐너)
+- [Tanstack Query - 서버 사이드에서 데이터 패치](#tanstack-query---서버-사이드에서-데이터-패치)
+
+<br />
+
+단순히 버그 없이 웹사이트를 운영하는 것도 중요하지만 사용자가 쾌적하게 이용할 수 있는 것도 매우 중요하다. 웹 사이트 성능은 0.1~0.2초 차이가 사용자에게 큰 차이를 느끼게 해주며, 조직이 이루고자 하는 목표와 직결된다고 할 수 있다.
+
+**결과적으로 성능 개선 후 측정 값을 보면 :**
+
+- 라이트하우스 LCP : `09초 -> 0.6초 개선`
+- 성능 탭 (3G, 캐시 비활성화) : `5.63초 -> 3.09초 개선`
+
+### ✅ 개선 전 체크
+
+`라이트하우스는` 최적화된 상태에서 시뮬레이션하여 성능을 측정하기 때문에, 실제 브라우저 환경을 더 잘 반영하는 `성능 탭`의 LCP도 함께 확인했다.
+
+- **측정 환경**
+  - Next.JS로 구현된 프로젝트
+  - 빠른 3G
+  - 브라우저 캐시 비활성화
+
+## #이미지 최적화 (AVIF 파일 형식과 sizes속성 적용)
+
+Next.js의 Image 컴포넌트는 **이미 최적화된 상태를 제공**하므로 성능에 큰 영향을 미치지 않는다. 그러나 개발자로서 최상의 성능을 위해 노력하는 것은 중요한 책임이라고 생각한다.
+
+### ﹒WebP → AVIF 형식으로 변환
+
+Next.js에는 기본적으로 `Sharp 라이브러리`가 설치되어 있다. Sharp는 Node.js 환경에서 사용되는 고성능 이미지 처리 라이브러리로 `이미지 크기 조정, 압축, 형식 변환` 등을 수행한다.
+
+✔️ 만약 Sharp 라이브러리가 설치되지 않아 경고가 나타난다면, 설치해주자
+
+```javascript
+const nextConfig = {
+...
+  images: {
+    formats: ['image/avif', 'image/webp'],
+ ...
+  },
+}
+```
+
+Next.js에게 **AVIF파일 형식을 사용할 것이라고 설정**해주면, **Next.js는 브라우저한테 변환된 이미지 파일 형식을 제공**해준다. 만약 브라우저가 **AVIF를 지원하지 않는다면** 자동으로 **WebP 또는 원본 이미지 파일 형식**을 제공할 것이다.
+
+### ﹒sizes 속성 지정
+
+Next.js의 Image 컴포넌트는 `sizes속성`을 지정해주면 `자동`으로 해당하는 `srcSet을 생성`해 최적화 해준다.
+
+**`sizes는` 브라우저가 어떤 해상도의 이미지를 로드해야 하는지 결정하는 중요한 속성이다.**
+
+예를들어 아래 코드와 같이 지정해보자
+
+```tsx
+<Image
+  src="/path/to/image.jpg"
+  alt="Example image"
+  sizes="(max-width: 600px) 100vw, (max-width: 1200px) 50vw, 33vw"
+/>
+```
+
+위와 같이 sizes를 지정하면,
+
+"부표트가 600px이하에서는 이미지가 100%로 차지할 것이므로 600px에 가까운 해상도를 가진 이미지를 srcSet에서 제공해!" 라는 의미와 같다.
+
+그럼 sizes를 256px로 픽스하면 어떻게 되는것일까?
+
+“뷰포트의 너비와 상관없이 항상 256px에 가까운 해상도를 가진 이미지를 srcSet에서 제공해!”라는 의미가 된다.
+
+> sizes속성은 Next.js Image 컴포넌트 속성뿐만 아니라 HTML img태그의 속성이다.  
+>  일반적으로 sizes속성은 srcSet이랑 함께 사용되며, 브라우저는 최적화된 이미지 파일을 선택해 제공한다.
+
+### 이제 AVIF와 sizes속성을 지정하기 전과 후를 비교해보자
+
+측정 환경은 **빠른 3G**와 **캐시 비활성화**이며 **Next.js** 웹 사이트로 측정하였다.  
+그리고 이미지가 반응형에 따라 크기가 변하지 않기 떄문에 ‘256px’로 설정했지만, 포인트는 뷰포트에 맞춰 적절하게 `sizes`를 설정하는 것이다.
+
+```typescript
+<div className="relative w-[8rem] h-[8rem] rounded-md overflow-hidden ">
+	 <Image sizes="256px" src={''} alt={`...`} fill />
+</div>
+```
+
+**WebP 형식과 sizes 속성 x 경우**
+![prev-performance-performance](/jangth/static/images/react/performance/only_webp_performance.png)
+파일크기 : 29.8 KB ~ 93.1 KB  
+로드 시간 : 1.37s ~ 2.36s
+![prev-performance-network](/jangth/static/images/react/performance/only_webp_network.png)
+이미지 크기가 AVIF보다 크기 때문에 로딩 시간이 보다 길어진다.  
+(✔️nextjs Image 컴포넌트는 기본적으로 Sharp를 사용해 webP 형식을 지원한다.)
+
+<br />
+
+**AVIF 형식과 sizes 속성 지정한 경우**
+![prev-performance-network](/jangth/static/images/react/performance/avif_sizes_performance.png)
+파일 크기: 16.6 KB ~ 63.9 KB  
+로드 시간: 1.01s ~ 1.76s
+![prev-performance-network](/jangth/static/images/react/performance/avif_sizes_network.png)
+이미지 크기가 상당히 작아져 로딩하는 시간이 상대적으로 빨라졌다.
+
+결과적으로 `AVIF 형식`과 `sizes 속성` **지정한 경우** 파일의 크기는 `약 53.4% 절감`과 로딩시간은 `약 24%로 개선`되었고 `LCP는 5.63초에서 5.25초로 0.4초 개선`된 것을 확인할 수 있다.  
+(3G 환경과 성능탭 LCP)
+
+하지만 라이트하우스에서는 LCP 0.9초로 똑같이 나타난다.
+
+> AVIF가 WebP 형식보다 높은 압축률을 보이지만, AVIF로 디코딩 하는 과정에서 CPU 리소스를 WebP보다 더 사용하게 된다.
+
+따라서 **사용자의 기기나 브라우저 환경을 고려**하여 고화질 이미지나 사이즈가 큰 이미지가 많을 경우 **WebP형식을 적용하는 것이 더 나을 수 있다.** 특히 모바일일 경우 CPU 사용량이 늘면 베터리 소모가 더 빨라져 사용자 경험이 더 낮아질 수 있기때문에 주의해야한다.
+
+<br />
+
+## #Script
+
+웹 페이지를 작업할 때, 타사 스크립트(SDK, 라이브러리)를 사용하곤 한다. 물론 해당 스크립트가 버그 없이 동작하는 것이 가장 중요하지만 스크립트의 크기가 클 수록 그리고 당장 필요하지 않은 스크립트를 로드할 경우, 렌더링이 지연되어 사용자 경험이 저하될 수 있다.
+
+**기존에는 naver map와 카카오 스크립트를 RootLayout에서 모두 로드하고 있다.**
+
+```typescript
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en">
+      <body className={inter.className}>
+        <KakaoScript />
+         <Script
+          id="naver-map-script"
+          type="text/javascript"
+          src={`https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${process.env
+            .NEXT_PUBLIC_NMAP_KEY!}&submodules=geocoder`}
+        />
+        <QueryProvider>
+          <main className="w-sm md:w-md m-auto">{children}</main>
+          <div id="modal" />
+        </QueryProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+그러나 naver map 스크립트는 **특정 페이지에서만 사용** 된다. 그래서 처음 웹페이지에 접근할 경우 RootLayout에서 **불필요**하게 **스크립트를 로드**할 필요가 없다.
+
+이에 따라 naver map 스크립트는 **특정 페이지 레이아웃에서만 로드**할 수 있도록 설정했다.
+
+```typescript
+import Script from 'next/script';
+
+export default function StoreDetailLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <section>
+      <Script
+        id="naver-map-script"
+        type="text/javascript"
+        src={`https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${process.env
+          .NEXT_PUBLIC_NMAP_KEY!}&submodules=geocoder`}
+      />
+      {children}
+    </section>
+  );
+}
+
+```
+
+**아래는 스크립트 적용 전후를 비교했다.**  
+성능 탭 가장 하단에 `빨간색 네모 표시`를 보면 타사 스크립트를 병렬적으로 다운로드 하는 모습과 LCP를 확인할 수 있다.
+
+**RootLayout에 naver map과 카카오 sdk 스크립트를 모두 로드할 경우**  
+성능 탭의 빨간색 표시를 보면 카카오와 naver map 스크립트를 병렬적으로 즉시 다운로드 받고 있다.
+![prev-performance-network](/jangth/static/images/react/performance/rootLayout_script_performance.png)
+
+**필요한 특정 페이지에 naver map 스크립트를 로드할 경우**  
+아래 성능탭의 빨간색 표시를 보면 naver map 스크립트가 없다.
+![prev-performance-network](/jangth/static/images/react/performance/split_script_performance.png)
+
+**이처럼 현재 페이지에 불필요한 스크립트만 제거해도 성능이 개선**된다.
+
+- **성능 탭**에서 `LCP가 5.25에서 5.09초로 개선` (3G 환경과 캐시 비활성화 상태)
+- **라이트 하우스**에서는 `LCP가 0.9초 → 0.7초 개선`
+
+여기서 궁금한점은
+
+> 스크립트를 병렬적으로 다운로드 받고 next/Script의 `afterInteractive전략`을 사용해 SSR과 하이드레이션 이후에 실행하는데도 왜 성능 최적화가 된것일까?
+
+브라우저가 스크립트를 병렬적으로 다운로드할 수 있지만 **`렌더링 리소스`**(css, 이미지)와 `스크립트가 동시에 다운로드` 되는 경우 `렌더링 리소스가 늦게 다운`로드 될 수 있기 때문이다.
+
+**렌더링 리소스의 다운로드가 지연**될수록 중요한 **콘텐츠의 렌더링이 늦어져** `LCP`에 영향을 미칠 수 있다.  
+따라서, <u>스크립트 로드를 필요한 페이지에 적용</u>함으로써 **불필요한 리소스 경쟁을 줄이고 성능을 개선**할 수 있다.
+
+참고로 **Next.js의 Script 컴포넌트**는 strategy 속성을 통해 스크립트 실행시점을 제어한다. 자세한 내용은 공식문서에 자세히 나와있다.
+
+https://nextjs.org/docs/app/building-your-application/optimizing/scripts#strategy
+
+<br />
+
+## #Tanstack Query - 서버 사이드에서 데이터 패치
+
+무한스크롤, 데이터 캐싱, 캐싱 컨트롤, 로딩 컨트롤, 에러 처리 등 간편하게 구현하기 위해 TanStack Query 라이브러리를 사용했다.
+
+### 클라이언트 사이드에서 데이터 가져오기
+
+사용자가 첫 메인 페이지를 접속했을 때, `useInfiniteQuery를` 활용하여 무한스크롤을 구현했다. useInfiniteQuery는 **클라이언트 사이드에서 데이터를 패칭한 후 캐싱**한다.
+
+### 클라이언트 사이드 데이터 패칭 개선 필요성
+
+useInfiniteQuery과 같이 **클라이언트 사이드에서 동작하는 훅**은 번들링 자바스크립트가 다운로드되고 **렌더링된 이후 데이터 패칭**이 이뤄진다. 즉 **리액트 컴포넌트 렌더링 후에 데이터 패칭**이 시작된다.
+
+<u>이 접근 방식의 문제</u>는 사용자가 웹 페이지에 처음 진입할 때 발생한다. 리액트 컴포넌트 렌더링된
+후에야 데이터 패칭이 시작되므로 **사용자가 의미있는 데이터 또는 메인콘텐츠`(Largest Content Paint,
+LCP)`를 보기까지 로딩하는 시간이 걸린다.** 특히 데이터에 이미지 주소도 포함되어 있는 경우 이미지를
+로드하는 데 추가적인 시간이 필요하다.{' '}
+
+또한 **모바일 환경에서도** 클라이언트 사이드에서 데이터를
+패칭할 경우 **사용자 기기**, **네트워크 비용**, **네트워크 상태**에 데이터 로딩 속도가 크게 달라질
+수 있다.
+
+다음은 서버 사이드에서 데이터를 미리 패칭하는 코드이다.
+
+### 서버 사이드에서 데이터 가져오기 (prefetchInfiniteQuery)
+
+서버 사이드에서 데이터를 패칭하기 위해 TanStack Query의 `prefetchInfiniteQuery를` 사용하였다. (서버 사이드에서 useInfiniteQuery와 호환되도록 prefetchInfiniteQuery를 사용)
+
+```typescript
+// uitls/prefetchStores.ts
+export async function prefetchStores() {
+  const initialSelectedTab = 'all';
+  const serverQueryClient = new QueryClient();
+  await serverQueryClient.prefetchInfiniteQuery({
+    queryKey: [queryKeys.STORE.GET_STORES, initialSelectedTab],
+    queryFn: () => getStores(1, initialSelectedTab),
+    getNextPageParam: () => 2,
+    pages: 1,
+    initialPageParam: 1,
+  });
+
+  return serverQueryClient;
+}
+
+// app/page.tsx
+export default async function HomePage() {
+  const queryClient = await prefetchStores();
+  return (
+    <section>
+			...
+      <Suspense fallback={<StoreListSkeleton paddingTop={70} length={10} />}>
+        <HydrationBoundary state={dehydrate(queryClient)}>
+          <StoreList />
+        </HydrationBoundary>
+      </Suspense>
+			...
+    </section>
+  );
+}
+```
+
+prefetchStores 함수는 serverQueryClient를 반환하는데 **prefetchInfiniteQuery가 getStores 함수로 데이터 패칭**을 수행하고 그 결과를 내부적으로 **QueryClient 캐시에 저장**하기 때문이다.
+
+그리고 서버 컴포넌트(HomePage)에서는 prefetchStores가 반환한 `queryClient`를 `dehydrate`를 사용하여 `직렬화`하고 `HydrationBoundary`의 state로 전달하여 **클라이언트 사이드 queryClient 캐시에 복원**해 사용한다.
+
+### 개선 결과(성능 비교)
+
+✔️ 빠른 3G와 캐시 비활성화 상태에서 측정
+
+**useInfiniteQuery (클라이언트 사이드 데이터 패칭)**  
+아래 성능탭의 빨간색 표시를 보면 `클라이언트 사이드`에서 **스크립트 다운로드하고 렌더링 후** 'stores' 데이터를 패칭하는 것을 확인할 수 있다.
+![prev-performance-network](/jangth/static/images/react/performance/useInfiniteQuery_performance.png)
+
+**클라이언트 사이드 데이터 패칭 경우** 이미지 로드 시간은 `1.03s에서 2.15s` 사이
+![prev-performance-network](/jangth/static/images/react/performance/useInfiniteQuery_network.png)
+
+<br />
+
+**prefetchInfiniteQuery (서버 사이드 데이터 패칭)**  
+아래 성능 탭에서 `서버 사이드`에서 **데이터를 미리 패칭**하면, 브라우저가 페이지를 렌더링할 때 **데이터를 즉시 사용**할 수 있어 렌더링과 동시에 **사용자는 데이터를 볼 수 있다.** 특히 데이터에 포함된 이미지 주소가 있는 경우, 이미지를 로드하는 속도가 매우 빨라진다.
+
+3G 환경에서 아래 빨간색 표시의 LCP를 보면 클라이언트 사이드보다 `약 2초정도 빠르다.`
+![prev-performance-network](/jangth/static/images/react/performance/prefetchQueries_performance.png)
+
+클라이언트 사이드 패칭 경우 이미지 로드 시간은 1.03s에서 2.15s 사이,
+**반면 서버 사이드 패칭 경우** 로드 시간은 `573ms ~ 1.75s` 사이
+![prev-performance-network](/jangth/static/images/react/performance/prefetchQuery_img_network.png)
+
+결과적으로 클라이언트 사이드에서 데이터 패칭하는 것보다 서버 사이드에서 데이터 패칭 했을 경우 :
+
+- **이미지 로딩 속도는** 평균적으로 `약 0.85초 정도 더 빠르다.`
+- **(3G 환경) LCP는 성능 탭**에서는 `5.13초 → 3.12초로 개선`, **라이트하우스**에서는 `0.7초 → 0.6초로 개선`되었다.
+
+이처럼 서버 사이드에서 데이터를 패칭하는 것이 데이터를 즉시 클라이언트로 전송해 보여줄 수 있어 사용자 경험이 크게 향상된다.
+
+최종적으로 이미지 속성, 스크립트 분활, 서버 사이드 데이터 패칭을 통해 성능을 개선할 수 있었다.
+
+- 성능탭의 LCP는 5.65s -> 3.09 (3G, 캐시 비활성화 환경에서 측정)
+- 라이트하우스의 LCP 09s -> 0.6s
