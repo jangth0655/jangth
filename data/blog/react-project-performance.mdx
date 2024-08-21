@@ -264,7 +264,7 @@ export default async function HomePage() {
 }
 ```
 
-`prefetchStores` 함수는 `serverQueryClient`를 반환하는데 `prefetchInfiniteQuery`가 `getStores` 함수로 데이터 패칭**을 수행하고 그 결과를 내부적으로 **QueryClient 캐시에 저장\*\*하기 때문이다.
+`prefetchStores` 함수는 `serverQueryClient`를 반환하는데 `prefetchInfiniteQuery`가 `getStores` 함수로 데이터 패칭을 수행하고 그 결과를 내부적으로 QueryClient 캐시에 저장하기 때문이다.
 
 그리고 서버 컴포넌트(HomePage)에서는 `prefetchStores`가 반환한 `queryClient`를 `dehydrate`를 사용하여 **직렬화**하고 `HydrationBoundary`의 state로 전달하여 **클라이언트 사이드 `queryClient` 캐시에 복원**해 사용한다.
 
@@ -272,14 +272,14 @@ export default async function HomePage() {
 
 ✔️ 빠른 3G와 캐시 비활성화 상태에서 측정
 
-**`useInfiniteQuery` (클라이언트 사이드 데이터 패칭)**  
-아래 성능탭의 빨간색 표시를 보면 `클라이언트 사이드`에서 **스크립트 다운로드하고 렌더링 후** 'stores' 데이터를 패칭하는 것을 확인할 수 있다.
-![prev-performance-network](/jangth/static/images/react/performance/useInfiniteQuery_performance.png)
+- **`useInfiniteQuery` (클라이언트 사이드 데이터 패칭)**  
+  아래 성능탭의 빨간색 표시를 보면 `클라이언트 사이드`에서 **스크립트 다운로드하고 렌더링 후** 'stores' 데이터를 패칭하는 것을 확인할 수 있다.
+  ![prev-performance-network](/jangth/static/images/react/performance/useInfiniteQuery_performance.png)
 
 <br />
 
-**`prefetchInfiniteQuery` (서버 사이드 데이터 패칭)**  
-아래 성능 탭에서 **서버 사이드**에서 **데이터를 미리 패칭**하면, 브라우저가 페이지를 렌더링할 때 **데이터를 즉시 사용**할 수 있어 렌더링과 동시에 **사용자는 데이터를 볼 수 있다.** 특히 데이터에 포함된 이미지 주소가 있는 경우, 이미지를 로드하는 속도가 매우 빨라진다.
+- **`prefetchInfiniteQuery` (서버 사이드 데이터 패칭)**  
+  아래 성능 탭에서 **서버 사이드**에서 **데이터를 미리 패칭**하면, 브라우저가 페이지를 렌더링할 때 **데이터를 즉시 사용**할 수 있어 렌더링과 동시에 **사용자는 데이터를 볼 수 있다.** 특히 데이터에 포함된 이미지 주소가 있는 경우, 이미지를 로드하는 속도가 매우 빨라진다.
 
 3G 환경에서 아래 빨간색 표시의 LCP를 보면 클라이언트 사이드보다 **약 2초정도 빠르다.**
 ![prev-performance-network](/jangth/static/images/react/performance/prefetchQueries_performance.png)
