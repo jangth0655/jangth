@@ -9,7 +9,7 @@ const siteMetadata = {
   siteUrl: 'https://jangth0655.github.io/jangth/',
   siteRepo: 'https://github.com/jangth0655/jangth',
   siteLogo: `/jangth/static/images/logo.png`,
-  // socialBanner: `${process.env.BASE_PATH || ''}/static/images/twitter-card.png`,
+  socialBanner: `/jangth/static/images/og.png`,
   mastodon: 'https://mastodon.social/@mastodonuser',
   email: 'jangth0655@yoursite.com',
   github: 'https://github.com/jangth0655',
