@@ -1,0 +1,116 @@
+---
+title: '리버스 프록시를 활용해 https 통신'
+date: '2025-02-01'
+tags: ['react', 'next-js', 'web']
+draft: false
+summary: 'https를 적용하기 위해 리버스 프록시를 활용한 방법과 그 이유'
+---
+
+## Proxy Server란 무엇인가
+
+<br />
+
+## Reverse Proxy server란
+
+<br />
+
+## https
+
+<br />
+
+## 현재 구조
+
+![nginx_flow](/jangth/static/images/web/server/reverse-proxy.png)
+
+1. 클라리언트는 https://exapmle.com으로 접속
+2. 프록시 서버는 https 요청을 받아 127.0.0.1:3000 Next.js 서버로 전달
+
+### #Nginx로 프록시 서버 구축
+
+```Markdown
+# nginx 설치
+brew install nginx
+
+# homebrew로 설치된 서비스 상태 확인
+# nginx start로 보여야함
+brew services list
+
+# nginx start <프로그램>
+brew services start nginx
+
+# nginx 설정 파일 수정 후 reload <프로그램>
+brew services reload nginx
+```
+
+### #OpenSSL로 셀프 인증서와 개인 키 생성
+
+- HTTPS를 처리하기 위한 SSL 인증서(cert.pem)와 개인 키(key.pem)를 생성
+- 생성된 파일은 `nginx.conf`의 `ssl_certificate` 및 `ssl_certificate_key` 항목에 사용
+
+```Markdown
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout key.pem -out cert.pem
+```
+
+- `x509`: 셀프 서명된 인증서를 생성
+- `nodes`: 개인 키를 암호화하지 않음
+- `days 365`: 인증서의 유효기간을 365일로 설정
+- `newkey rsa:2048`: 2048비트 RSA 키 생성
+- `keyout`: 개인 키 저장 파일명
+- `out`: 인증서 저장 파일명
+
+### #Nginx 파일 작성
+
+nginx가 설치된 경로에 nginx.conf가 자동으로 생성
+
+```javascript
+
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    # HTTPS server
+    server {
+	     # ssl well known port는 443
+       listen       3060 ssl;
+       server_name  local-developers-console.hyundaimotorgroup.com;
+
+
+       ssl_certificate     /Users/fe_jangtaehee/projects/hd/ssl/cert.pem;
+       ssl_certificate_key /Users/fe_jangtaehee/projects/hd/ssl/key.pem;
+
+       ssl_session_cache    shared:SSL:1m;
+
+       ssl_ciphers  HIGH:!aNULL:!MD5;
+       ssl_prefer_server_ciphers  on;
+
+       location / {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+    }
+    include servers/*;
+}
+
+```
+
+먼저 http 파일 설정을 위해서 ‘http {}’을 생성하고 내부에 http 설정에 관련된 내용을 작성해주면 됩니다.
+
+중요한 부분은 http 서버 설정관련 부분인데 아래와 같습니다.
+
+- worker_proccesses : 동시에 실행되는 워커 프로세스의 수
+- listen 3060 ssl : 3060 포트번호는 ssl가 적용
+- server_name : local-developers-console.hyundaimotorgroup.com을 도메인주소로 지정
+- ssl_certificate : 인증서 경로
+- ssl_certificate_key : 개인키 경로
+- location : 요청 경로 설정 (리버스 프록시 역할)
+  - proxy_pass : 요청을 ‘proxy_pass’ 경로로 리디렉션
+  - 나머지 header 설정
